@@ -1,4 +1,8 @@
 import back
+import sys
+import updater
+import subprocess
+import os
 
 ans = 0
 
@@ -10,8 +14,8 @@ def user_offline(username):
 back.set_callback("user_offline", user_offline)
 
 
-def receive_user(name):
-    print(name + " is online.")
+def receive_user(username):
+    print(username + " is online.")
 
 
 back.set_callback("user", receive_user)
@@ -30,6 +34,21 @@ def stop(string):
 
 back.set_callback("stop", stop)
 
+update_url, version = updater.detect_update()
+
+
+if update_url:
+    app_dir = os.path.dirname(os.path.abspath(__file__))
+
+    process = subprocess.Popen([
+        sys.executable,
+        os.path.join(app_dir, "updater_ui.py"),
+        update_url,
+        version
+    ], cwd=app_dir)
+
+
+    sys.exit()
 print("------------Menu System------------ \n"
       "1: Start                    "
       "2: End")
