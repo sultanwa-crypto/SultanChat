@@ -41,7 +41,7 @@ def start():
     global udp_sock
     udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-    udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)76
+    udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 
     udp_sock.bind(("", 5000))
 
