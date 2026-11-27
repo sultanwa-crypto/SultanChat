@@ -36,7 +36,6 @@ back.set_callback("stop", stop)
 
 update_url, version = updater.detect_update()
 
-
 if update_url:
     app_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -47,14 +46,19 @@ if update_url:
         version
     ], cwd=app_dir)
 
-
     sys.exit()
 print("------------Menu System------------ \n"
       "1: Start                    "
       "2: End")
 
-name = input("name? \n")
-back.set_name(name)
+try:
+    name = input("name? \n")
+    back.set_name(name)
+
+except KeyboardInterrupt:
+    back.end()
+    sys.exit()
+
 
 while True:
 
@@ -64,6 +68,10 @@ while True:
     except ValueError:
         print("invalid command")
         continue
+
+    except KeyboardInterrupt:
+        back.end()
+        break
 
     if ans == 1:
 

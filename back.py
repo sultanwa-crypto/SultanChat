@@ -56,10 +56,16 @@ def start():
 
 def end():
     global running
+    try:
+        sock.close()
+        udp_sock.close()
+
+    except NameError:
+        pass
+
+    trigger_event("stop", "\nstopped")
     running = False
-    sock.close()
-    udp_sock.close()
-    trigger_event("stop", "stopped")
+
 
 
 def receive_udp():
