@@ -8,7 +8,6 @@ data = response.read()
 text = data.decode()
 release = json.loads(text)
 
-    print("update available!")
 zip_url = release["zipball_url"]
 zip_code = urllib.request.urlopen(zip_url)
 zip_data = zip_code.read()
