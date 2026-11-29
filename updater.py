@@ -1,160 +1,156 @@
-import json
-import urllib.request
-import zipfile
-import os
-import shutil
-import sys
-import subprocess
-import time
 import logging
-import urllib.error
+
+logger = logging.getLogger(__name__)
+
+try:
+    import json
+    import os
+    import shutil
+    import subprocess
+    import sys
+    import time
+    import urllib.error
+    import urllib.request
+    import zipfile
+
+    callbacks = {}
+    new_version = None
+    attempts = 5
 
 
-logging.basicConfig(
-    filename="updater.log",
-    filemode="w",
-    level=logging.ERROR,
-    format="%(asctime)s %(levelname)s %(message)s"
-)
-
-callbacks = {}
-new_version = None
-
-def set_callback(event, new_function):
-    if event in callbacks:
-        callbacks[event].append(new_function)
-    else:
-        callbacks[event] = [new_function]
+    def set_callback(event, new_function):
+        if event in callbacks:
+            callbacks[event].append(new_function)
+        else:
+            callbacks[event] = [new_function]
 
 
-def trigger_event(event, data):
-    if event in callbacks:
-        for new_function in callbacks[event]:
-            new_function(data)
+    def trigger_event(event, data):
+        if event in callbacks:
+            for new_function in callbacks[event]:
+                new_function(data)
 
 
-def download_data(url):
-    last_error = None
-    retryable_codes = (408, 425, 429, 500, 502, 503, 504)
+    def download_data(url):
 
-    for attempt in range(3):
+        for attempt in range(attempts):
+            try:
+                with urllib.request.urlopen(url, timeout=15) as response:
+                    return response.read()
+
+            except urllib.error.HTTPError as f:
+                last_error = f
+                logger.exception("Updater.py error")
+
+            except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as f:
+                last_error = f
+                logger.exception("Updater.py error")
+
+            if attempt < attempts - 1:
+                time.sleep(attempt * 2)
+            else:
+                trigger_event("error", last_error)
+        return None
+
+
+    # ---------- GitHub Release ----------
+
+    def detect_update():
+
         try:
-            with urllib.request.urlopen(url, timeout=30) as response:
-                return response.read()
+            url = "https://api.github.com/repos/sultanwa-crypto/SultanChat/releases/latest"
 
-        except urllib.error.HTTPError as e:
-            if e.code not in retryable_codes:
-                raise
-            last_error = e
+            response = urllib.request.urlopen(url, timeout=15)
+            data = response.read()
+            text = data.decode()
+            release = json.loads(text)
 
-        except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as e:
-            last_error = e
+            # ---------- Version Information ----------
 
-        if attempt < 2:
-            trigger_event(
-                "retry",
-                f"Connection interrupted. Retrying ({attempt + 1}/2)..."
-            )
-            time.sleep(2 ** attempt)
-        else:
-            raise last_error
-    return None
+            version_file = open("version.txt", "r")
+            current_version = version_file.read().strip()
+            version_file.close()
 
+            global new_version
+            new_version = release["tag_name"]
+            zip_url = release["zipball_url"]
 
-# ---------- GitHub Release ----------
-def detect_update():
-    try:
-        url = "https://api.github.com/repos/sultanwa-crypto/SultanChat/releases/latest"
+            if new_version != current_version:
+                return zip_url, new_version
+            else:
+                return None, None
 
-        response = urllib.request.urlopen(url, timeout=15)
-        data = response.read()
-        text = data.decode()
-        release = json.loads(text)
+        except Exception as f:
+            logger.exception("Updater error")
+            trigger_event("error", f)
 
-        # ---------- Version Information ----------
-
-        version_file = open("version.txt", "r")
-        current_version = version_file.read().strip()
-        version_file.close()
-
-        global new_version
-        new_version = release["tag_name"]
-        zip_url = release["zipball_url"]
-
-        if new_version != current_version:
-            return zip_url, new_version
-        else:
             return None, None
 
-    except Exception:
-        logging.exception("Update installation failed")
 
-        trigger_event(
-            "error",
-            "Unable to complete the update. Please try again."
-        )
+    def download_update(zip_url, version):
+        try:
+            # ---------- Download ----------
+            trigger_event("download", "Starting download...")
 
-        return None, None
+            if os.path.exists("update.zip"):
+                os.remove("update.zip")
 
+            if os.path.exists("update_temp"):
+                shutil.rmtree("update_temp")
 
-def download_update(zip_url, version):
-    try:
-        # ---------- Download ----------
-        trigger_event("download", "Starting download...")
+            zip_data = download_data(zip_url)
 
-        if os.path.exists("update.zip"):
+            zip_file = open("update.zip", "wb")
+            zip_file.write(zip_data)
+            zip_file.close()
+
+            # ---------- Extraction ----------
+
+            new_code = zipfile.ZipFile("update.zip", "r")
+            new_code.extractall("update_temp")
+            new_code.close()
+
+            folders = os.listdir("update_temp")
+            source_folder = os.path.join("update_temp", folders[0])
+
+            # ---------- File Replacement ----------
+
+            front_path = os.path.join(source_folder, "front.py")
+            back_path = os.path.join(source_folder, "back.py")
+
+            shutil.copy2(front_path, "front.py")
+            shutil.copy2(back_path, "back.py")
+
             os.remove("update.zip")
-
-        if os.path.exists("update_temp"):
             shutil.rmtree("update_temp")
 
-        zip_data = download_data(zip_url)
+            # ---------- Version Update ----------
 
-        zip_file = open("update.zip", "wb")
-        zip_file.write(zip_data)
-        zip_file.close()
+            version_file = open("version.txt", "w")
+            version_file.write(version)
+            version_file.close()
 
-        # ---------- Extraction ----------
+            trigger_event("finished", "Update completed!")
 
-        new_code = zipfile.ZipFile("update.zip", "r")
-        new_code.extractall("update_temp")
-        new_code.close()
+            app_dir = os.path.dirname(os.path.abspath(__file__))
 
-        folders = os.listdir("update_temp")
-        source_folder = os.path.join("update_temp", folders[0])
+            subprocess.Popen(
+                [sys.executable, os.path.join(app_dir, "front.py")],
+                cwd=app_dir,
+                creationflags=subprocess.CREATE_NEW_CONSOLE
+            )
 
-        # ---------- File Replacement ----------
-
-        trigger_event("replace", "Replacing files...")
-
-        front_path = os.path.join(source_folder, "front.py")
-        back_path = os.path.join(source_folder, "back.py")
-
-        shutil.copy2(front_path, "front.py")
-        shutil.copy2(back_path, "back.py")
-
-        os.remove("update.zip")
-        shutil.rmtree("update_temp")
-
-        # ---------- Version Update ----------
-
-        version_file = open("version.txt", "w")
-        version_file.write(version)
-        version_file.close()
-
-        trigger_event("finished", "Update completed!")
-
-        app_dir = os.path.dirname(os.path.abspath(__file__))
-
-        subprocess.Popen(
-            [sys.executable, os.path.join(app_dir, "front.py")],
-            cwd=app_dir,
-            creationflags=subprocess.CREATE_NEW_CONSOLE
-        )
-
-    except Exception as e:
-        trigger_event("error", e)
+        except Exception as f:
+            logger.exception("Updater error")
+            trigger_event("error", f)
 
 
-if __name__ == "__main__":
-    download_update(sys.argv[1], sys.argv[2])
+    if __name__ == "__main__":
+        try:
+            download_update(sys.argv[1], sys.argv[2])
+        except Exception as e:
+            logger.exception("updater.py error")
+            trigger_event("error", e)
+
+except Exception as r:
+    logger.exception("updater.py error during startup")
